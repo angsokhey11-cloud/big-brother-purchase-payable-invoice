@@ -91,7 +91,7 @@ th{background:#f8fafc;color:#475569;position:sticky;top:0}
     <div class="filters">
       <div>
         <label>Search</label>
-        <input id="search" placeholder="Purchase ID / Client / Purchaser" oninput="render()">
+        <input id="search" placeholder="Client Invoice Number / Client / Purchaser" oninput="render()">
       </div>
       <div>
         <label>Client</label>
@@ -125,7 +125,7 @@ th{background:#f8fafc;color:#475569;position:sticky;top:0}
         <thead>
           <tr>
             <th><input id="selectAll" class="checkbox" type="checkbox" onchange="toggleSelectAll(this.checked)"></th>
-            <th>Purchase ID</th>
+            <th>Client Invoice Number</th>
             <th>Date</th>
             <th>Client</th>
             <th>Purchaser</th>
@@ -577,7 +577,7 @@ function filtered(){
   const paymentStatus=document.getElementById("statusFilter").value;
 
   return purchases.filter(p=>{
-    const hay=[p.purchaseId,p.clientName,p.clientCode,p.purchaserName].join(" ").toLowerCase();
+    const hay=[p.clientInvoiceNumber,p.purchaseId,p.clientName,p.clientCode,p.purchaserName].join(" ").toLowerCase();
     if(q && !hay.includes(q)) return false;
     if(client && String(p.clientName||"")!==client) return false;
     if(currency && String(p.currency||"USD")!==currency) return false;
@@ -604,7 +604,7 @@ function render(){
     body.innerHTML=rows.map(p=>`
       <tr>
         <td><input class="checkbox" type="checkbox" ${selectedPurchaseIds.has(String(p.purchaseId))?"checked":""} onchange="toggleSelection('${esc(p.purchaseId)}',this.checked)"></td>
-        <td><strong>${esc(p.purchaseId)}</strong></td>
+        <td><strong>${esc(p.clientInvoiceNumber||p.purchaseId||'-')}</strong></td>
         <td>${esc(p.purchaseDate)}</td>
         <td>${esc(p.clientName)}</td>
         <td>${esc(p.purchaserName)}</td>
@@ -636,7 +636,7 @@ function openPayment(id){
 
   currentPaymentPurchase=p;
   document.getElementById("paymentModalSub").textContent=
-    `${p.purchaseId} • ${p.clientName} • ${p.currency}`;
+    `${p.clientInvoiceNumber||p.purchaseId} • ${p.clientName} • ${p.currency}`;
   document.getElementById("payDate").value=todayISO();
   document.getElementById("payAmount").value=num(p.payable);
   document.getElementById("payAmount").max=num(p.payable);
@@ -734,11 +734,11 @@ function openBatchPayment(){
 
   document.getElementById("batchAllocationList").innerHTML=
     `<div class="batch-row head">
-      <div>Purchase ID</div><div>Client</div><div>Payable</div><div>Payment</div>
+      <div>Client Invoice Number</div><div>Client</div><div>Payable</div><div>Payment</div>
     </div>`+
     rows.map(p=>`
       <div class="batch-row">
-        <div><strong>${esc(p.purchaseId)}</strong></div>
+        <div><strong>${esc(p.clientInvoiceNumber||p.purchaseId||"-")}</strong></div>
         <div>${esc(p.clientName)}</div>
         <div>${money(p.payable,p.currency)}</div>
         <div>
@@ -901,7 +901,7 @@ function renderPayablePreviewDetail(res){
 
   document.getElementById("detailContent").innerHTML=`
     <div class="detailgrid">
-      <div class="detail"><div class="k">Purchase ID</div><div class="v">${esc(p.purchaseId)}</div></div>
+      <div class="detail"><div class="k">Client Invoice Number</div><div class="v">${esc(p.clientInvoiceNumber||p.purchaseId||"-")}</div></div>
       <div class="detail"><div class="k">Purchase Date</div><div class="v">${esc(p.purchaseDate)}</div></div>
       <div class="detail"><div class="k">Client</div><div class="v">${esc(p.clientName)}</div></div>
       <div class="detail"><div class="k">Purchaser</div><div class="v">${esc(p.purchaserName)}</div></div>
