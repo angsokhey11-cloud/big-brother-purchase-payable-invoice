@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>BIG BROTHER — Payable Invoice V1</title>
+<title>BIG BROTHER — Payable Invoice V1.1 Payment + Batch Payment</title>
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#f4f7fb;color:#1f2937;font-family:Inter,Arial,sans-serif}
@@ -44,6 +44,24 @@ th{background:#f8fafc;color:#475569;position:sticky;top:0}
 .detail{border:1px solid var(--line);border-radius:9px;padding:10px}
 .detail .k{font-size:10px;color:var(--muted);font-weight:800;text-transform:uppercase}
 .detail .v{margin-top:4px;font-weight:800}
+
+.pay-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.paybtn{border:0;background:#157a51;color:#fff}
+.batchbtn{border:0;background:#174a91;color:#fff}
+.checkbox{width:18px;height:18px;cursor:pointer}
+.modalbox.payment-modal-box{max-width:720px}
+.paygrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.payfull{grid-column:1/-1}
+.payhint{font-size:11px;color:#6b7280;margin-top:5px}
+.batch-list{border:1px solid var(--line);border-radius:9px;overflow:hidden;margin:10px 0 14px}
+.batch-row{display:grid;grid-template-columns:1.2fr 1.5fr .7fr .8fr;gap:8px;align-items:center;padding:9px 10px;border-bottom:1px solid var(--line);font-size:12px}
+.batch-row:last-child{border-bottom:0}
+.batch-row.head{background:#f8fafc;font-weight:800;color:#475569}
+.batch-row input{padding:7px 8px}
+.payment-total{display:flex;justify-content:space-between;align-items:center;background:#eef4fb;border-radius:8px;padding:11px 12px;margin:10px 0;font-weight:900;color:#174a91}
+.hidden{display:none!important}
+@media(max-width:700px){.paygrid{grid-template-columns:1fr}.payfull{grid-column:auto}.batch-row{grid-template-columns:1fr}}
+
 @media(max-width:1000px){.filters,.summary,.detailgrid{grid-template-columns:1fr 1fr}}
 @media(max-width:600px){.filters,.summary,.detailgrid{grid-template-columns:1fr}.page{padding:12px}}
 </style>
@@ -55,7 +73,10 @@ th{background:#f8fafc;color:#475569;position:sticky;top:0}
       <h1>Payable Invoice</h1>
       <div class="sub">BIG BROTHER — Outstanding Purchase Payables</div>
     </div>
-    <button class="secondary" onclick="loadData()">Refresh</button>
+    <div class="pay-actions">
+      <button class="batchbtn" onclick="openBatchPayment()">Batch Payment</button>
+      <button class="secondary" onclick="loadData()">Refresh</button>
+    </div>
   </div>
 
   <div class="summary">
@@ -103,6 +124,7 @@ th{background:#f8fafc;color:#475569;position:sticky;top:0}
       <table>
         <thead>
           <tr>
+            <th><input id="selectAll" class="checkbox" type="checkbox" onchange="toggleSelectAll(this.checked)"></th>
             <th>Purchase ID</th>
             <th>Date</th>
             <th>Client</th>
@@ -113,13 +135,125 @@ th{background:#f8fafc;color:#475569;position:sticky;top:0}
             <th>Payable</th>
             <th>Payment Status</th>
             <th>Payment Term</th>
+            <th>Payment</th>
             <th>Preview</th>
           </tr>
         </thead>
         <tbody id="tbody">
-          <tr><td colspan="11">Loading...</td></tr>
+          <tr><td colspan="13">Loading...</td></tr>
         </tbody>
       </table>
+    </div>
+  </div>
+</div>
+
+
+<div class="modal" id="paymentModal">
+  <div class="modalbox payment-modal-box">
+    <div class="modalhead">
+      <div>
+        <h2 style="margin:0;color:#174a91">Create Purchase Payment</h2>
+        <div class="sub" id="paymentModalSub"></div>
+      </div>
+      <button class="close" onclick="closePaymentModal()">Close</button>
+    </div>
+
+    <div class="paygrid">
+      <div><label>Payment Date *</label><input id="payDate" type="date"></div>
+      <div><label>Amount *</label><input id="payAmount" type="number" min="0" step="0.01"></div>
+
+      <div>
+        <label>Payment Method *</label>
+        <select id="payMethod" onchange="syncPayBankFields()">
+          <option value="Cash">Cash</option>
+          <option value="Bank">Bank</option>
+        </select>
+      </div>
+
+      <div id="payBankWrap" class="hidden">
+        <label>Bank</label>
+        <input id="payBank" placeholder="Bank name">
+      </div>
+
+      <div id="payTxWrap" class="payfull hidden">
+        <label>Transaction ID *</label>
+        <input id="payTransactionId" placeholder="Bank transaction ID">
+      </div>
+
+      <div class="payfull">
+        <label>Processed By</label>
+        <input id="payProcessedBy" placeholder="Name">
+      </div>
+
+      <div class="payfull">
+        <label>Note</label>
+        <input id="payNote" placeholder="Optional note">
+      </div>
+    </div>
+
+    <div class="payment-total">
+      <span>Current Payable</span>
+      <span id="singlePayableLabel">0.00</span>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px">
+      <button class="secondary" onclick="closePaymentModal()">Cancel</button>
+      <button class="paybtn" id="savePaymentBtn" onclick="saveSinglePayment()">Save Payment</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="batchPaymentModal">
+  <div class="modalbox payment-modal-box">
+    <div class="modalhead">
+      <div>
+        <h2 style="margin:0;color:#174a91">Batch Payment</h2>
+        <div class="sub" id="batchModalSub">One Client • One Currency</div>
+      </div>
+      <button class="close" onclick="closeBatchPaymentModal()">Close</button>
+    </div>
+
+    <div id="batchAllocationList" class="batch-list"></div>
+
+    <div class="paygrid">
+      <div><label>Payment Date *</label><input id="batchPayDate" type="date"></div>
+      <div>
+        <label>Payment Method *</label>
+        <select id="batchPayMethod" onchange="syncBatchBankFields()">
+          <option value="Cash">Cash</option>
+          <option value="Bank">Bank</option>
+        </select>
+      </div>
+
+      <div id="batchBankWrap" class="hidden">
+        <label>Bank</label>
+        <input id="batchBank" placeholder="Bank name">
+      </div>
+
+      <div id="batchTxWrap" class="hidden">
+        <label>Transaction ID *</label>
+        <input id="batchTransactionId" placeholder="Bank transaction ID">
+      </div>
+
+      <div class="payfull">
+        <label>Processed By</label>
+        <input id="batchProcessedBy" placeholder="Name">
+      </div>
+
+      <div class="payfull">
+        <label>Note</label>
+        <input id="batchNote" placeholder="Optional note">
+      </div>
+    </div>
+
+    <div class="payment-total">
+      <span>Batch Total</span>
+      <span id="batchTotalLabel">0.00</span>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;gap:8px">
+      <button class="secondary" onclick="closeBatchPaymentModal()">Cancel</button>
+      <button class="batchbtn" id="saveBatchPaymentBtn" onclick="saveBatchPayment()">Save Batch Payment</button>
     </div>
   </div>
 </div>
@@ -141,6 +275,8 @@ th{background:#f8fafc;color:#475569;position:sticky;top:0}
 const PURCHASE_DATABASE_API_URL = "https://script.google.com/macros/s/AKfycbz7k1iBBfx9xiIKl1719W_jsKA8kLl7ihD4UykIyIAk-btXvAiOsORiw71NWwUD6XFOgg/exec";
 
 let purchases=[];
+let selectedPurchaseIds=new Set();
+let currentPaymentPurchase=null;
 
 function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
 function num(v){const n=Number(v);return Number.isFinite(n)?n:0;}
@@ -175,6 +311,65 @@ function getJson(url, params = {}) {
   });
 }
 
+
+function todayISO(){
+  const d=new Date();
+  const y=d.getFullYear();
+  const m=String(d.getMonth()+1).padStart(2,"0");
+  const day=String(d.getDate()).padStart(2,"0");
+  return `${y}-${m}-${day}`;
+}
+
+function postForm(url,action,fieldName,data){
+  return new Promise((resolve,reject)=>{
+    const frameName="bbPayWrite_"+Date.now()+"_"+Math.random().toString(36).slice(2);
+    const iframe=document.createElement("iframe");
+    iframe.name=frameName;
+    iframe.style.display="none";
+    document.body.appendChild(iframe);
+
+    const form=document.createElement("form");
+    form.method="POST";
+    form.action=url;
+    form.target=frameName;
+    form.style.display="none";
+
+    const a=document.createElement("input");
+    a.type="hidden";a.name="action";a.value=action;form.appendChild(a);
+
+    const d=document.createElement("input");
+    d.type="hidden";d.name=fieldName;d.value=JSON.stringify(data);form.appendChild(d);
+
+    document.body.appendChild(form);
+
+    try{form.submit();}
+    catch(e){form.remove();iframe.remove();reject(e);return;}
+
+    setTimeout(()=>{
+      form.remove();
+      iframe.remove();
+      resolve();
+    },1800);
+  });
+}
+
+function selectedRows(){
+  return purchases.filter(p=>selectedPurchaseIds.has(String(p.purchaseId)));
+}
+
+function toggleSelection(id,checked){
+  if(checked) selectedPurchaseIds.add(String(id));
+  else selectedPurchaseIds.delete(String(id));
+}
+
+function toggleSelectAll(checked){
+  selectedPurchaseIds.clear();
+  if(checked){
+    filtered().forEach(p=>selectedPurchaseIds.add(String(p.purchaseId)));
+  }
+  render();
+}
+
 async function loadData(){
   setStatus("Loading Payable Invoices...");
   try{
@@ -182,6 +377,7 @@ async function loadData(){
     if(res?.success===false) throw new Error(res.error||"Database error.");
 
     purchases=arrayOf(res).filter(p=>num(p.payable)>0);
+    selectedPurchaseIds.clear();
 
     const clients=[...new Set(purchases.map(p=>p.clientName).filter(Boolean))].sort();
     document.getElementById("clientFilter").innerHTML=
@@ -227,10 +423,11 @@ function render(){
   const body=document.getElementById("tbody");
 
   if(!rows.length){
-    body.innerHTML='<tr><td colspan="11">No open Payable Invoices found.</td></tr>';
+    body.innerHTML='<tr><td colspan="13">No open Payable Invoices found.</td></tr>';
   }else{
     body.innerHTML=rows.map(p=>`
       <tr>
+        <td><input class="checkbox" type="checkbox" ${selectedPurchaseIds.has(String(p.purchaseId))?"checked":""} onchange="toggleSelection('${esc(p.purchaseId)}',this.checked)"></td>
         <td><strong>${esc(p.purchaseId)}</strong></td>
         <td>${esc(p.purchaseDate)}</td>
         <td>${esc(p.clientName)}</td>
@@ -241,6 +438,7 @@ function render(){
         <td class="amount">${money(p.payable,p.currency)}</td>
         <td>${badge(p.paymentStatus)}</td>
         <td>${esc(p.paymentTerm||"-")}</td>
+        <td><button class="paybtn" onclick="openPayment('${esc(p.purchaseId)}')">Payment</button></td>
         <td><button class="primary" onclick="preview('${esc(p.purchaseId)}')">Preview</button></td>
       </tr>
     `).join("");
@@ -253,6 +451,216 @@ function render(){
   document.getElementById("usdStat").textContent=money(usd.reduce((s,x)=>s+num(x.payable),0),"USD");
   document.getElementById("khrStat").textContent=money(khr.reduce((s,x)=>s+num(x.payable),0),"KHR");
   document.getElementById("clientStat").textContent=new Set(rows.map(x=>x.clientId||x.clientName).filter(Boolean)).size;
+}
+
+
+function openPayment(id){
+  const p=purchases.find(x=>String(x.purchaseId)===String(id));
+  if(!p) return alert("Purchase was not found.");
+
+  currentPaymentPurchase=p;
+  document.getElementById("paymentModalSub").textContent=
+    `${p.purchaseId} • ${p.clientName} • ${p.currency}`;
+  document.getElementById("payDate").value=todayISO();
+  document.getElementById("payAmount").value=num(p.payable);
+  document.getElementById("payAmount").max=num(p.payable);
+  document.getElementById("payMethod").value="Cash";
+  document.getElementById("payBank").value="";
+  document.getElementById("payTransactionId").value="";
+  document.getElementById("payNote").value="";
+  document.getElementById("singlePayableLabel").textContent=money(p.payable,p.currency);
+  syncPayBankFields();
+  document.getElementById("paymentModal").classList.add("show");
+}
+
+function closePaymentModal(){
+  document.getElementById("paymentModal").classList.remove("show");
+  currentPaymentPurchase=null;
+}
+
+function syncPayBankFields(){
+  const bank=document.getElementById("payMethod").value==="Bank";
+  document.getElementById("payBankWrap").classList.toggle("hidden",!bank);
+  document.getElementById("payTxWrap").classList.toggle("hidden",!bank);
+}
+
+async function saveSinglePayment(){
+  const p=currentPaymentPurchase;
+  if(!p) return;
+
+  const amount=num(document.getElementById("payAmount").value);
+  const method=document.getElementById("payMethod").value;
+  const tx=document.getElementById("payTransactionId").value.trim();
+
+  if(amount<=0) return alert("Payment Amount must be greater than 0.");
+  if(amount>num(p.payable)+0.000001) return alert("Payment Amount cannot exceed Payable.");
+  if(method==="Bank"&&!tx) return alert("Transaction ID is required for Bank payment.");
+
+  const data={
+    purchaseId:p.purchaseId,
+    paymentDate:document.getElementById("payDate").value||todayISO(),
+    amount,
+    paymentMethod:method,
+    bank:document.getElementById("payBank").value.trim(),
+    transactionId:tx,
+    processedBy:document.getElementById("payProcessedBy").value.trim(),
+    note:document.getElementById("payNote").value.trim()
+  };
+
+  if(!confirm(`Save ${money(amount,p.currency)} payment for ${p.purchaseId}?`)) return;
+
+  const btn=document.getElementById("savePaymentBtn");
+  btn.disabled=true;
+  btn.textContent="Saving...";
+
+  try{
+    await postForm(PURCHASE_DATABASE_API_URL,"savePurchasePayment","paymentData",data);
+    closePaymentModal();
+    setStatus("Payment saved • refreshing Payable Invoice...","success");
+    setTimeout(loadData,700);
+  }catch(e){
+    alert("Could not save payment.");
+  }finally{
+    btn.disabled=false;
+    btn.textContent="Save Payment";
+  }
+}
+
+function openBatchPayment(){
+  const rows=selectedRows();
+
+  if(!rows.length){
+    return alert("Select at least one Payable Invoice first.");
+  }
+
+  const client=String(rows[0].clientId||rows[0].clientName||"");
+  const currency=String(rows[0].currency||"USD");
+
+  const invalid=rows.some(p=>
+    String(p.clientId||p.clientName||"")!==client ||
+    String(p.currency||"USD")!==currency
+  );
+
+  if(invalid){
+    return alert("Batch Payment must contain only one Client and one Currency.");
+  }
+
+  document.getElementById("batchModalSub").textContent=
+    `${rows[0].clientName} • ${currency} • ${rows.length} invoice(s)`;
+
+  document.getElementById("batchPayDate").value=todayISO();
+  document.getElementById("batchPayMethod").value="Cash";
+  document.getElementById("batchBank").value="";
+  document.getElementById("batchTransactionId").value="";
+  document.getElementById("batchNote").value="";
+
+  document.getElementById("batchAllocationList").innerHTML=
+    `<div class="batch-row head">
+      <div>Purchase ID</div><div>Client</div><div>Payable</div><div>Payment</div>
+    </div>`+
+    rows.map(p=>`
+      <div class="batch-row">
+        <div><strong>${esc(p.purchaseId)}</strong></div>
+        <div>${esc(p.clientName)}</div>
+        <div>${money(p.payable,p.currency)}</div>
+        <div>
+          <input
+            class="batch-allocation"
+            data-purchase-id="${esc(p.purchaseId)}"
+            data-max="${num(p.payable)}"
+            type="number"
+            min="0"
+            max="${num(p.payable)}"
+            step="0.01"
+            value="${num(p.payable)}"
+            oninput="updateBatchTotal()"
+          >
+        </div>
+      </div>
+    `).join("");
+
+  syncBatchBankFields();
+  updateBatchTotal();
+  document.getElementById("batchPaymentModal").classList.add("show");
+}
+
+function closeBatchPaymentModal(){
+  document.getElementById("batchPaymentModal").classList.remove("show");
+}
+
+function syncBatchBankFields(){
+  const bank=document.getElementById("batchPayMethod").value==="Bank";
+  document.getElementById("batchBankWrap").classList.toggle("hidden",!bank);
+  document.getElementById("batchTxWrap").classList.toggle("hidden",!bank);
+}
+
+function getBatchAllocations(){
+  return [...document.querySelectorAll(".batch-allocation")]
+    .map(el=>({
+      purchaseId:el.dataset.purchaseId,
+      amount:num(el.value),
+      max:num(el.dataset.max)
+    }))
+    .filter(x=>x.amount>0);
+}
+
+function updateBatchTotal(){
+  const rows=selectedRows();
+  const currency=rows[0]?.currency||"USD";
+  const total=getBatchAllocations().reduce((s,x)=>s+x.amount,0);
+  document.getElementById("batchTotalLabel").textContent=money(total,currency);
+}
+
+async function saveBatchPayment(){
+  const allocations=getBatchAllocations();
+  if(!allocations.length) return alert("Enter at least one payment amount.");
+
+  for(const x of allocations){
+    if(x.amount>x.max+0.000001){
+      return alert(`Payment for ${x.purchaseId} cannot exceed its Payable.`);
+    }
+  }
+
+  const rows=selectedRows();
+  const currency=rows[0]?.currency||"USD";
+  const total=allocations.reduce((s,x)=>s+x.amount,0);
+  const method=document.getElementById("batchPayMethod").value;
+  const tx=document.getElementById("batchTransactionId").value.trim();
+
+  if(method==="Bank"&&!tx){
+    return alert("Transaction ID is required for Bank payment.");
+  }
+
+  const data={
+    allocations:allocations.map(x=>({purchaseId:x.purchaseId,amount:x.amount})),
+    paymentDate:document.getElementById("batchPayDate").value||todayISO(),
+    paymentMethod:method,
+    bank:document.getElementById("batchBank").value.trim(),
+    transactionId:tx,
+    processedBy:document.getElementById("batchProcessedBy").value.trim(),
+    note:document.getElementById("batchNote").value.trim()
+  };
+
+  if(!confirm(
+    `Save Batch Payment?\n\nInvoices: ${allocations.length}\nTotal: ${money(total,currency)}`
+  )) return;
+
+  const btn=document.getElementById("saveBatchPaymentBtn");
+  btn.disabled=true;
+  btn.textContent="Saving...";
+
+  try{
+    await postForm(PURCHASE_DATABASE_API_URL,"savePurchaseBatchPayment","paymentData",data);
+    closeBatchPaymentModal();
+    selectedPurchaseIds.clear();
+    setStatus("Batch Payment saved • refreshing Payable Invoice...","success");
+    setTimeout(loadData,700);
+  }catch(e){
+    alert("Could not save Batch Payment.");
+  }finally{
+    btn.disabled=false;
+    btn.textContent="Save Batch Payment";
+  }
 }
 
 async function preview(id){
