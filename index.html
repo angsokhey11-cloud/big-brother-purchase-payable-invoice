@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>BIG BROTHER — Payable Invoice V1.1 Payment + Batch Payment</title>
+<title>BIG BROTHER — Payable Invoice V1.2 Smart Sync + Storage</title>
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#f4f7fb;color:#1f2937;font-family:Inter,Arial,sans-serif}
@@ -278,6 +278,14 @@ let purchases=[];
 let selectedPurchaseIds=new Set();
 let currentPaymentPurchase=null;
 
+const PAYABLE_CACHE_KEY="BB_PURCHASE_PAYABLE_DEVICE_CACHE_V1";
+const PAYABLE_DETAIL_CACHE_PREFIX="BB_PURCHASE_PAYABLE_DETAIL_V1_";
+const PAYABLE_SYNC_INTERVAL_MS=20000;
+
+let payableLastRevision="";
+let payableSyncBusy=false;
+let payableSyncTimer=null;
+
 function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
 function num(v){const n=Number(v);return Number.isFinite(n)?n:0;}
 function money(v,c="USD"){
@@ -370,24 +378,192 @@ function toggleSelectAll(checked){
   render();
 }
 
-async function loadData(){
-  setStatus("Loading Payable Invoices...");
+
+function readPayableCache(){
   try{
-    const res=await getJson(PURCHASE_DATABASE_API_URL,{action:"getPurchases"});
+    const raw=localStorage.getItem(PAYABLE_CACHE_KEY);
+    if(!raw) return null;
+    const parsed=JSON.parse(raw);
+    if(!parsed || !Array.isArray(parsed.purchases)) return null;
+    return parsed;
+  }catch(_){
+    return null;
+  }
+}
+
+function savePayableCache(revision){
+  try{
+    const payload={
+      revision:String(revision||payableLastRevision||""),
+      savedAt:Date.now(),
+      purchases:Array.isArray(purchases)?purchases:[]
+    };
+    localStorage.setItem(PAYABLE_CACHE_KEY,JSON.stringify(payload));
+    if(payload.revision) payableLastRevision=payload.revision;
+  }catch(error){
+    console.warn("Payable cache unavailable:",error);
+  }
+}
+
+function renderPayableCache(){
+  const cached=readPayableCache();
+  if(!cached) return false;
+
+  payableLastRevision=String(cached.revision||"");
+  purchases=cached.purchases.filter(p=>num(p.payable)>0);
+  rebuildClientFilter();
+  render();
+  setStatus("Cached • checking for updates...","success");
+  return true;
+}
+
+function payableDetailCacheKey(purchaseId){
+  return PAYABLE_DETAIL_CACHE_PREFIX + encodeURIComponent(String(purchaseId||""));
+}
+
+function readPayableDetailCache(purchaseId){
+  try{
+    const raw=localStorage.getItem(payableDetailCacheKey(purchaseId));
+    if(!raw) return null;
+    const parsed=JSON.parse(raw);
+    if(!parsed || !parsed.purchase) return null;
+    return parsed;
+  }catch(_){
+    return null;
+  }
+}
+
+function savePayableDetailCache(purchaseId,data){
+  try{
+    localStorage.setItem(
+      payableDetailCacheKey(purchaseId),
+      JSON.stringify({
+        revision:String(payableLastRevision||""),
+        savedAt:Date.now(),
+        purchase:data.purchase||{},
+        items:Array.isArray(data.items)?data.items:[]
+      })
+    );
+  }catch(error){
+    console.warn("Payable detail cache unavailable:",error);
+  }
+}
+
+function clearPayableDetailCache(purchaseId){
+  try{
+    localStorage.removeItem(payableDetailCacheKey(purchaseId));
+  }catch(_){}
+}
+
+function rebuildClientFilter(){
+  const current=document.getElementById("clientFilter").value;
+  const clients=[...new Set(purchases.map(p=>p.clientName).filter(Boolean))].sort();
+
+  document.getElementById("clientFilter").innerHTML=
+    '<option value="">All Clients</option>'+
+    clients.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join("");
+
+  if(clients.includes(current)){
+    document.getElementById("clientFilter").value=current;
+  }
+}
+
+async function fetchPayableRevision(){
+  const res=await getJson(PURCHASE_DATABASE_API_URL,{
+    action:"purchaseHistoryRevision"
+  });
+
+  if(res?.success===false){
+    throw new Error(res.error||"Sync check failed.");
+  }
+
+  return String(res?.revision||"0");
+}
+
+function flashPayableSyncStatus(text){
+  setStatus(text,"success");
+
+  clearTimeout(flashPayableSyncStatus.timer);
+  flashPayableSyncStatus.timer=setTimeout(()=>{
+    setStatus(purchases.length+" open Payable Invoice(s) loaded.","success");
+  },1800);
+}
+
+async function payableSmartSyncTick(forceCheck=false){
+  if(payableSyncBusy) return;
+  if(document.hidden && !forceCheck) return;
+
+  payableSyncBusy=true;
+
+  try{
+    const revision=await fetchPayableRevision();
+
+    if(payableLastRevision && revision===payableLastRevision){
+      flashPayableSyncStatus("Up to date • auto sync 20s");
+      return;
+    }
+
+    payableLastRevision=revision;
+    await loadData({silent:true});
+    flashPayableSyncStatus("Updated automatically");
+
+  }catch(error){
+    console.warn("Payable smart sync failed:",error);
+    // Keep cached/current data visible.
+  }finally{
+    payableSyncBusy=false;
+  }
+}
+
+function startPayableSmartSync(){
+  if(payableSyncTimer) clearInterval(payableSyncTimer);
+
+  payableSyncTimer=setInterval(
+    ()=>payableSmartSyncTick(false),
+    PAYABLE_SYNC_INTERVAL_MS
+  );
+}
+
+async function loadData(options={}){
+  const silent=options && options.silent===true;
+
+  if(!silent){
+    setStatus("Loading Payable Invoices...");
+  }
+
+  try{
+    const [res,revision]=await Promise.all([
+      getJson(PURCHASE_DATABASE_API_URL,{action:"getPurchases"}),
+      fetchPayableRevision().catch(()=>payableLastRevision||"")
+    ]);
+
     if(res?.success===false) throw new Error(res.error||"Database error.");
 
     purchases=arrayOf(res).filter(p=>num(p.payable)>0);
+    payableLastRevision=String(revision||payableLastRevision||"");
+
     selectedPurchaseIds.clear();
-
-    const clients=[...new Set(purchases.map(p=>p.clientName).filter(Boolean))].sort();
-    document.getElementById("clientFilter").innerHTML=
-      '<option value="">All Clients</option>'+
-      clients.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join("");
-
+    rebuildClientFilter();
     render();
-    setStatus(purchases.length+" open Payable Invoice(s) loaded.","success");
+    savePayableCache(payableLastRevision);
+
+    if(!silent){
+      setStatus(purchases.length+" open Payable Invoice(s) loaded.","success");
+    }
+
   }catch(e){
     console.error(e);
+
+    const cached=readPayableCache();
+    if(cached){
+      purchases=cached.purchases.filter(p=>num(p.payable)>0);
+      payableLastRevision=String(cached.revision||payableLastRevision||"");
+      rebuildClientFilter();
+      render();
+      setStatus("Cached Payable data shown • sync will retry automatically.","success");
+      return;
+    }
+
     purchases=[];
     render();
     setStatus("Could not load Payable Invoices: "+(e.message||"Database connection error."));
@@ -515,9 +691,11 @@ async function saveSinglePayment(){
 
   try{
     await postForm(PURCHASE_DATABASE_API_URL,"savePurchasePayment","paymentData",data);
+    clearPayableDetailCache(p.purchaseId);
     closePaymentModal();
-    setStatus("Payment saved • refreshing Payable Invoice...","success");
-    setTimeout(loadData,700);
+    payableLastRevision="";
+    setStatus("Payment saved • syncing Payable Invoice...","success");
+    setTimeout(()=>payableSmartSyncTick(true),500);
   }catch(e){
     alert("Could not save payment.");
   }finally{
@@ -651,10 +829,12 @@ async function saveBatchPayment(){
 
   try{
     await postForm(PURCHASE_DATABASE_API_URL,"savePurchaseBatchPayment","paymentData",data);
+    allocations.forEach(x=>clearPayableDetailCache(x.purchaseId));
     closeBatchPaymentModal();
     selectedPurchaseIds.clear();
-    setStatus("Batch Payment saved • refreshing Payable Invoice...","success");
-    setTimeout(loadData,700);
+    payableLastRevision="";
+    setStatus("Batch Payment saved • syncing Payable Invoice...","success");
+    setTimeout(()=>payableSmartSyncTick(true),500);
   }catch(e){
     alert("Could not save Batch Payment.");
   }finally{
@@ -666,48 +846,89 @@ async function saveBatchPayment(){
 async function preview(id){
   document.getElementById("modal").classList.add("show");
   document.getElementById("modalSub").textContent=id;
+
+  const cached=readPayableDetailCache(id);
+
+  if(cached && cached.purchase){
+    renderPayablePreviewDetail({
+      purchase:cached.purchase,
+      items:Array.isArray(cached.items)?cached.items:[]
+    });
+
+    if(String(cached.revision||"")===String(payableLastRevision||"")){
+      return;
+    }
+
+    // Keep cached detail visible while refreshing silently.
+    getJson(PURCHASE_DATABASE_API_URL,{
+      action:"getPurchaseDetail",
+      purchaseId:id
+    }).then(res=>{
+      if(res?.success===false) return;
+      savePayableDetailCache(id,res);
+      if(document.getElementById("modal").classList.contains("show")){
+        renderPayablePreviewDetail(res);
+      }
+    }).catch(()=>{});
+
+    return;
+  }
+
   document.getElementById("detailContent").innerHTML="Loading...";
 
   try{
-    const res=await getJson(PURCHASE_DATABASE_API_URL,{action:"getPurchaseDetail",purchaseId:id});
-    if(res?.success===false) throw new Error(res.error||"Could not load Purchase Detail.");
+    const res=await getJson(PURCHASE_DATABASE_API_URL,{
+      action:"getPurchaseDetail",
+      purchaseId:id
+    });
 
-    const p=res.purchase||{};
-    const items=Array.isArray(res.items)?res.items:[];
+    if(res?.success===false){
+      throw new Error(res.error||"Could not load Purchase Detail.");
+    }
 
-    document.getElementById("detailContent").innerHTML=`
-      <div class="detailgrid">
-        <div class="detail"><div class="k">Purchase ID</div><div class="v">${esc(p.purchaseId)}</div></div>
-        <div class="detail"><div class="k">Purchase Date</div><div class="v">${esc(p.purchaseDate)}</div></div>
-        <div class="detail"><div class="k">Client</div><div class="v">${esc(p.clientName)}</div></div>
-        <div class="detail"><div class="k">Purchaser</div><div class="v">${esc(p.purchaserName)}</div></div>
-        <div class="detail"><div class="k">Grand Total</div><div class="v">${money(p.grandTotal,p.currency)}</div></div>
-        <div class="detail"><div class="k">Amount Paid</div><div class="v">${money(p.amountPaid,p.currency)}</div></div>
-        <div class="detail"><div class="k">Outstanding Payable</div><div class="v" style="color:#b42318">${money(p.payable,p.currency)}</div></div>
-        <div class="detail"><div class="k">Payment Status</div><div class="v">${badge(p.paymentStatus)}</div></div>
-      </div>
+    savePayableDetailCache(id,res);
+    renderPayablePreviewDetail(res);
 
-      <div class="tablewrap">
-        <table style="min-width:850px">
-          <thead><tr><th>No.</th><th>Product</th><th>Product Code</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Amount</th></tr></thead>
-          <tbody>
-            ${items.length?items.map((x,i)=>`
-              <tr>
-                <td>${i+1}</td>
-                <td><strong>${esc(x.productName)}</strong></td>
-                <td>${esc(x.productCode)}</td>
-                <td>${num(x.qty)}</td>
-                <td>${esc(x.unit)}</td>
-                <td>${money(x.unitPrice,p.currency)}</td>
-                <td><strong>${money(x.amount,p.currency)}</strong></td>
-              </tr>`).join(""):'<tr><td colspan="7">No Purchase Items found.</td></tr>'}
-          </tbody>
-        </table>
-      </div>
-    `;
   }catch(e){
-    document.getElementById("detailContent").innerHTML='<div class="status">Could not load detail: '+esc(e.message||"Error")+'</div>';
+    document.getElementById("detailContent").innerHTML=
+      '<div class="status">Could not load detail: '+esc(e.message||"Error")+'</div>';
   }
+}
+
+function renderPayablePreviewDetail(res){
+  const p=res.purchase||{};
+  const items=Array.isArray(res.items)?res.items:[];
+
+  document.getElementById("detailContent").innerHTML=`
+    <div class="detailgrid">
+      <div class="detail"><div class="k">Purchase ID</div><div class="v">${esc(p.purchaseId)}</div></div>
+      <div class="detail"><div class="k">Purchase Date</div><div class="v">${esc(p.purchaseDate)}</div></div>
+      <div class="detail"><div class="k">Client</div><div class="v">${esc(p.clientName)}</div></div>
+      <div class="detail"><div class="k">Purchaser</div><div class="v">${esc(p.purchaserName)}</div></div>
+      <div class="detail"><div class="k">Grand Total</div><div class="v">${money(p.grandTotal,p.currency)}</div></div>
+      <div class="detail"><div class="k">Amount Paid</div><div class="v">${money(p.amountPaid,p.currency)}</div></div>
+      <div class="detail"><div class="k">Outstanding Payable</div><div class="v" style="color:#b42318">${money(p.payable,p.currency)}</div></div>
+      <div class="detail"><div class="k">Payment Status</div><div class="v">${badge(p.paymentStatus)}</div></div>
+    </div>
+
+    <div class="tablewrap">
+      <table style="min-width:850px">
+        <thead><tr><th>No.</th><th>Product</th><th>Product Code</th><th>Qty</th><th>Unit</th><th>Unit Price</th><th>Amount</th></tr></thead>
+        <tbody>
+          ${items.length?items.map((x,i)=>`
+            <tr>
+              <td>${i+1}</td>
+              <td><strong>${esc(x.productName)}</strong></td>
+              <td>${esc(x.productCode)}</td>
+              <td>${num(x.qty)}</td>
+              <td>${esc(x.unit)}</td>
+              <td>${money(x.unitPrice,p.currency)}</td>
+              <td><strong>${money(x.amount,p.currency)}</strong></td>
+            </tr>`).join(""):'<tr><td colspan="7">No Purchase Items found.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  `;
 }
 
 function closeModal(){document.getElementById("modal").classList.remove("show");}
@@ -719,7 +940,23 @@ function clearFilters(){
   render();
 }
 document.getElementById("modal").addEventListener("click",e=>{if(e.target.id==="modal")closeModal();});
-loadData();
+(async function initializePayableInvoice(){
+  const showedCache=renderPayableCache();
+
+  if(!showedCache){
+    await loadData();
+  }else{
+    await payableSmartSyncTick(true);
+  }
+
+  startPayableSmartSync();
+})();
+
+document.addEventListener("visibilitychange",function(){
+  if(!document.hidden){
+    payableSmartSyncTick(true);
+  }
+});
 </script>
 </body>
 </html>
