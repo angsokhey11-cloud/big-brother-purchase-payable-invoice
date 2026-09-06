@@ -570,6 +570,16 @@ async function loadData(options={}){
   }
 }
 
+function formatDateOnly(value){
+  if(!value) return "";
+  const s=String(value).trim();
+  const iso=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(iso) return String(iso[3]).padStart(2,"0")+"/"+String(iso[2]).padStart(2,"0")+"/"+iso[1];
+  const d=new Date(s);
+  if(!isNaN(d)) return String(d.getDate()).padStart(2,"0")+"/"+String(d.getMonth()+1).padStart(2,"0")+"/"+d.getFullYear();
+  return s.replace(/\s+\d{1,2}:\d{2}:\d{2}.*$/,"").replace(/\s+GMT[+-]\d{4}.*$/,"");
+}
+
 function filtered(){
   const q=document.getElementById("search").value.trim().toLowerCase();
   const client=document.getElementById("clientFilter").value;
@@ -605,7 +615,7 @@ function render(){
       <tr>
         <td><input class="checkbox" type="checkbox" ${selectedPurchaseIds.has(String(p.purchaseId))?"checked":""} onchange="toggleSelection('${esc(p.purchaseId)}',this.checked)"></td>
         <td><strong>${esc(p.clientInvoiceNumber||p.purchaseId||'-')}</strong></td>
-        <td>${esc(p.purchaseDate)}</td>
+        <td>${esc(formatDateOnly(p.purchaseDate))}</td>
         <td>${esc(p.clientName)}</td>
         <td>${esc(p.purchaserName)}</td>
         <td>${esc(p.currency)}</td>
@@ -902,7 +912,7 @@ function renderPayablePreviewDetail(res){
   document.getElementById("detailContent").innerHTML=`
     <div class="detailgrid">
       <div class="detail"><div class="k">Client Invoice Number</div><div class="v">${esc(p.clientInvoiceNumber||p.purchaseId||"-")}</div></div>
-      <div class="detail"><div class="k">Purchase Date</div><div class="v">${esc(p.purchaseDate)}</div></div>
+      <div class="detail"><div class="k">Purchase Date</div><div class="v">${esc(formatDateOnly(p.purchaseDate))}</div></div>
       <div class="detail"><div class="k">Client</div><div class="v">${esc(p.clientName)}</div></div>
       <div class="detail"><div class="k">Purchaser</div><div class="v">${esc(p.purchaserName)}</div></div>
       <div class="detail"><div class="k">Grand Total</div><div class="v">${money(p.grandTotal,p.currency)}</div></div>
