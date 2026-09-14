@@ -1,4 +1,4 @@
-/* BIG BROTHER — Purchase Payable Mobile V1 */
+/* BIG BROTHER — Purchase Payable Mobile V1.1 */
 (function(){
 'use strict';
 const BASE_WIDTH=794;
@@ -115,9 +115,14 @@ function init(){
   const detailModal=document.getElementById('detailModal');
   if(detailModal)new MutationObserver(()=>{if(detailModal.classList.contains('show'))setTimeout(prepareDetail,0)}).observe(detailModal,{attributes:true,attributeFilter:['class']});
 
+  /* IMPORTANT: Keep original payment modal DOM in place even for view-only users.
+     The live engine fills payStaff/batchStaff during bootstrap. Removing those nodes
+     before the async bootstrap finishes causes staffOptions() to crash. */
   if(!canEdit()){
-    document.getElementById('paymentModal')?.remove();
-    document.getElementById('batchModal')?.remove();
+    const paymentModal=document.getElementById('paymentModal');
+    const batchModal=document.getElementById('batchModal');
+    if(paymentModal)paymentModal.setAttribute('aria-hidden','true');
+    if(batchModal)batchModal.setAttribute('aria-hidden','true');
   }
 
   window.addEventListener('resize',fitDetail);
