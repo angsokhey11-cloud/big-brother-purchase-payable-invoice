@@ -21,7 +21,7 @@ async function parse(r){const t=await r.text();let d={};try{d=t?JSON.parse(t):{}
 async function ensure(){let s=readSession();if(!s?.access_token)throw new Error('Please sign in to BIG BROTHER first.');if(s.expires_at&&Number(s.expires_at)<Math.floor(Date.now()/1000)+45){if(!s.refresh_token)throw new Error('Your BIG BROTHER session has expired.');const r=await fetch(URL+'/auth/v1/token?grant_type=refresh_token',{method:'POST',headers:{apikey:KEY,'Content-Type':'application/json'},body:JSON.stringify({refresh_token:s.refresh_token}),cache:'no-store'});s=await parse(r);saveSession(s)}return s}
 async function rpc(fn,args={}){const s=await ensure();const r=await fetch(URL+'/rest/v1/rpc/'+fn,{method:'POST',headers:{apikey:KEY,Authorization:'Bearer '+s.access_token,'Content-Type':'application/json'},body:JSON.stringify(args||{}),cache:'no-store'});return parse(r)}
 function key(v){return String(v||'').trim().toLowerCase()}
-function esc(v){return String(v||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
+function esc(v){return String(v||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#039;'}[c]))}
 async function permission(){
   const p=await rpc('bb_current_access_profile');
   if(p?.user?.isAdmin===true)return {profile:p,canView:true,canEdit:true};
@@ -44,11 +44,11 @@ try{
   html=html.replaceAll('bb_purchase_save_batch_payment','bb_purchase_payable_mobile_save_batch_payment');
   const headClose=html.toLowerCase().indexOf('</head>');
   if(headClose<0)throw new Error('Payable Invoice source is missing </head>.');
-  const headAdd='<link rel="stylesheet" href="mobile-payable.css?v=20260915-1">\n<script>window.BB_PAYABLE_MOBILE_CAN_EDIT='+JSON.stringify(access.canEdit)+';<\/script>';
+  const headAdd='<link rel="stylesheet" href="mobile-payable.css?v=20260915-2">\n<script>window.BB_PAYABLE_MOBILE_CAN_EDIT='+JSON.stringify(access.canEdit)+';<\/script>';
   html=html.slice(0,headClose)+headAdd+'\n'+html.slice(headClose);
   const bodyClose=html.toLowerCase().lastIndexOf('</body>');
   if(bodyClose<0)throw new Error('Payable Invoice source is missing </body>.');
-  html=html.slice(0,bodyClose)+'<script src="mobile-payable.js?v=20260915-1"><\/script>\n'+html.slice(bodyClose);
+  html=html.slice(0,bodyClose)+'<script src="mobile-payable.js?v=20260915-2"><\/script>\n'+html.slice(bodyClose);
   html=html.replace('<title>BIG BROTHER — Purchase Payable Supabase DEV</title>','<title>BIG BROTHER — Payable Invoice Mobile</title>');
   document.open();document.write(html);document.close();
 }catch(error){
